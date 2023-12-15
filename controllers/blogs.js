@@ -1,6 +1,7 @@
 const blogsRouter = require('express').Router()
 const Blog = require('../models/blog')
 const User = require('../models/user')
+const jwt = require('jsonwebtoken')
 
 blogsRouter.get('/', async (req, res) => {
     const blogs = await Blog.find({}).populate('user', { username: 1, name: 1 })
@@ -13,13 +14,10 @@ blogsRouter.get('/:id', async (req, res) => {
 })
 
 blogsRouter.post('/', async (req, res) => {
-    const body = req.body
+    if (!req.token) return res.status(401).json({ error: 'token is not provided' })
 
-    let user = await User.findById(body.userId)
-    if (!user) {
-        const usersList = await User.find({})
-        user = usersList[0]
-    }
+    const body = req.body
+    const user = req.user
 
     const blog = new Blog({
         title: body.title,
@@ -38,8 +36,17 @@ blogsRouter.post('/', async (req, res) => {
 })
 
 blogsRouter.delete('/:id', async (req, res) => {
-    await Blog.findByIdAndDelete(req.params.id)
-    res.status(204).end()
+    const id = req.params.id
+    const user = req.user
+    const blog = await Blog.findById(id)
+    if (user.id.toString() === blog.user.toString()) {
+        await Blog.findByIdAndDelete(blog.id)
+
+        user.blogs = user.blogs.filter((b) => b.toString() !== id)
+        await user.save()
+
+        res.status(204).end()
+    } else res.status(401).json({ error: 'You do not have permission to delete this blog' })
 })
 
 blogsRouter.put('/:id', async (req, res) => {

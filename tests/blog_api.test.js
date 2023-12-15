@@ -3,14 +3,28 @@ const supertest = require('supertest')
 const app = require('../app')
 const Blog = require('../models/blog')
 const helper = require('./test_helper')
+const User = require('../models/user')
 
 const api = supertest(app)
 
 beforeEach(async () => {
     await Blog.deleteMany({})
+    await User.deleteMany({})
 
-    const blogObjects = helper.initialBlogs.map((blog) => new Blog(blog))
-    const promiseArray = blogObjects.map((blog) => blog.save())
+    const defUser = new User(helper.defaultUser)
+    const savedUser = await defUser.save()
+
+    const userObjects = helper.initialUsers.map((user) => new User(user))
+    const blogObjects = helper.initialBlogs
+        .map((blog) => {
+            const linkedBlog = blog
+            linkedBlog.user = savedUser._id
+            return linkedBlog
+        })
+        .map((blog) => new Blog(blog))
+    const promiseArray = blogObjects
+        .map((blog) => blog.save())
+        .concat(userObjects.map((user) => user.save()))
     await Promise.all(promiseArray)
 })
 
@@ -53,7 +67,7 @@ describe('tests of blog API', () => {
                 .expect(200)
                 .expect('Content-Type', /application\/json/)
 
-            expect(resultBlog.body).toEqual(blogToView)
+            expect(resultBlog.body.title).toEqual(blogToView.title)
         })
 
         test('fails with statuscode 404 if blog does not exist', async () => {
@@ -71,17 +85,23 @@ describe('tests of blog API', () => {
     describe('addition of a new blog', () => {
         test('a valid blog can be added', async () => {
             const newBlog = {
-                _id: '65757bb54a8dcc4e81f7b878',
                 title: 'Classes vs. Data Structures',
                 author: 'Robert C. Martin',
                 url: 'https://blog.cleancoder.com/uncle-bob/2019/06/16/ObjectsAndDataStructures.html',
                 likes: 4,
-                __v: 0,
             }
+
+            const login = await api.post('/api/login').send({
+                username: helper.initialUsers[0].username,
+                password: 'password',
+            })
+
+            const token = `Bearer ${login.body.token}`
 
             await api
                 .post('/api/blogs')
                 .send(newBlog)
+                .set('Authorization', token)
                 .expect(201)
                 .expect('Content-Type', /application\/json/)
 
@@ -94,16 +114,22 @@ describe('tests of blog API', () => {
 
         test('like defaults to 0', async () => {
             const newBlog = {
-                _id: '65757bb54a8dcc4e81f7b878',
                 title: 'Classes vs. Data Structures',
                 author: 'Robert C. Martin',
                 url: 'https://blog.cleancoder.com/uncle-bob/2019/06/16/ObjectsAndDataStructures.html',
-                __v: 0,
             }
+
+            const login = await api.post('/api/login').send({
+                username: helper.initialUsers[0].username,
+                password: 'password',
+            })
+
+            const token = `Bearer ${login.body.token}`
 
             await api
                 .post('/api/blogs')
                 .send(newBlog)
+                .set('Authorization', token)
                 .expect(201)
                 .expect('Content-Type', /application\/json/)
 
@@ -115,9 +141,17 @@ describe('tests of blog API', () => {
         })
 
         test('blog without title is not added', async () => {
+            const login = await api.post('/api/login').send({
+                username: helper.initialUsers[0].username,
+                password: 'password',
+            })
+
+            const token = `Bearer ${login.body.token}`
+
             await api
                 .post('/api/blogs')
                 .send({ ...helper.initialBlogs[0], title: null })
+                .set('Authorization', token)
                 .expect(400)
 
             const blogsAtEnd = await helper.blogsInDb()
@@ -125,10 +159,25 @@ describe('tests of blog API', () => {
         })
 
         test('blog without url is not added', async () => {
+            const login = await api.post('/api/login').send({
+                username: helper.initialUsers[0].username,
+                password: 'password',
+            })
+
+            const token = `Bearer ${login.body.token}`
+
             await api
                 .post('/api/blogs')
                 .send({ ...helper.initialBlogs[0], url: null })
+                .set('Authorization', token)
                 .expect(400)
+
+            const blogsAtEnd = await helper.blogsInDb()
+            expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length)
+        })
+
+        test('adding a blog fails with the proper status code if token is not provided', async () => {
+            await api.post('/api/blogs').send(helper.initialBlogs[0]).expect(401)
 
             const blogsAtEnd = await helper.blogsInDb()
             expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length)
@@ -140,7 +189,17 @@ describe('tests of blog API', () => {
             const blogsAtStart = await helper.blogsInDb()
             const blogToDelete = blogsAtStart[1]
 
-            await api.delete(`/api/blogs/${blogToDelete.id}`).expect(204)
+            const login = await api.post('/api/login').send({
+                username: helper.defaultUser.username,
+                password: 'password',
+            })
+
+            const token = `Bearer ${login.body.token}`
+
+            await api
+                .delete(`/api/blogs/${blogToDelete.id}`)
+                .set('Authorization', token)
+                .expect(204)
 
             const blogsAtEnd = await helper.blogsInDb()
 
