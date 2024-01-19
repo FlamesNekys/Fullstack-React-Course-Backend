@@ -1,5 +1,6 @@
 const blogsRouter = require('express').Router()
 const Blog = require('../models/blog')
+const Comment = require('../models/comment')
 
 blogsRouter.get('/', async (req, res) => {
     const blogs = await Blog.find({}).populate('user', { username: 1, name: 1 })
@@ -60,6 +61,20 @@ blogsRouter.put('/:id', async (req, res) => {
 
     const updatedBlog = await Blog.findByIdAndUpdate(req.params.id, blog, { new: true })
     res.status(200).json(updatedBlog)
+})
+
+blogsRouter.get('/:id/comments', async (req, res) => {
+    const comments = await Comment.find({})
+    res.json(comments)
+})
+
+blogsRouter.post('/:id/comments', async (req, res) => {
+    const body = req.body
+    const comment = new Comment({ content: body.content, blogId: body.id })
+
+    const savedComment = await comment.save()
+
+    res.status(201).json(savedComment)
 })
 
 module.exports = blogsRouter
